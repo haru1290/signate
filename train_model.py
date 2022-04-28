@@ -1,57 +1,64 @@
-from tabnanny import verbose
 import numpy as np
 import pandas as pd
-import xgboost as xgb
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.metrics import make_scorer, mean_squared_error
+import lightgbm as lgb
+from sklearn import datasets
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.metrics import mean_squared_error, r2_score
 
 
-def output_file(pred_):
-    submit = pd.read_csv('./submit_sample.csv', sep=',', header=None)
-    submit.loc[:,1] = pred_
+def make_submit_file(pred):
+    submit = pd.read_csv('./data/submit_sample.csv', sep=',', header=None)
+    submit.loc[:,1] = pred
     submit.to_csv("./submit.csv", index=None, header=None)
 
 
-def train_model(X_train, y_train, params, scorer):
-    xgb_reg = xgb.XGBRegressor()
-    grid_xgb_reg = GridSearchCV(
-        xgb_reg,
-        param_grid=params,
-        scoring=scorer,
-        cv=5,
-        n_jobs=-1,
-        verbose=3
-    )
-    grid_xgb_reg.fit(X_train, y_train)
+def train_model(X_train, X_valid, y_train, y_valid):
+    lgb_train = lgb.Dataset(X_train, y_train, free_raw_data=False)
+    lgb_valid = lgb.Dataset(X_valid, y_valid, free_raw_data=False)
 
-    return grid_xgb_reg
+    params = {
+        'task': 'train',
+        'boosting_type': 'gbdt',
+        'objective': 'regression',
+        'metric': 'rmse',
+        'learning_rate': 0.1
+    }
+
+    evaluation_results = {}
+    model = lgb.train(
+        params,
+        lgb_train,
+        num_boost_round=2000,
+        valid_names=['train', 'valid'],
+        valid_sets=[lgb_train, lgb_valid],
+        evals_result=evaluation_results,
+        early_stopping_rounds=10
+    )
+
+    return model
 
 
 def main(): 
     train = pd.read_csv('./data/train.csv')
     test = pd.read_csv('./data/test.csv')
 
-    train_ = train.drop(['id','Country', 'City', 'pm25_mid'], axis=1)
-    test_ = test.drop(['id','Country', 'City'], axis=1)
+    train_ = train.drop(['id', 'pm25_mid'], axis=1)
+    test_ = test.drop(['id'], axis=1)
     y = train['pm25_mid']
     
-    X_train, X_test, y_train, y_test = train_test_split(
+    X_train, X_valid, y_train, y_valid = train_test_split(
             train_, y,
-            test_size=.2,
+            test_size=0.2,
+            random_state=123
     )
 
-    params=[{
-        'max_depth':[3, 4, 5, 6],
-        'n_estimators': [100, 300, 500]
-    }]
-
-    scorer = make_scorer(mean_squared_error, greater_is_better=False)
-
-    model = train_model(X_train, y_train, params, scorer)
-    pred = model.predict(X_test)
-    print(f"RMSE: {mean_squared_error(pred, y_test, squared=False):.3f}")
-    # pred = model.predict(test_)
-    # output_file(pred)
+    K_fold = KFold(n_splits=5, shuffle=True,  random_state=42)
+    for train_cv_no, eval_cv_no in K_fold.split(list(range(len(y_train))), y_train):
+        pass
+    
+    model = train_model(X_train, X_valid, y_train, y_valid)
+    pred = model.predict(test_)
+    make_submit_file(pred)
 
 
 if __name__ == '__main__':
