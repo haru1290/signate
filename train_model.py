@@ -12,9 +12,9 @@ def make_submit_file(pred):
     submit.to_csv("./submit.csv", index=None, header=None)
 
 
-def train_model(X_train, X_valid, y_train, y_valid):
-    lgb_train = lgb.Dataset(X_train, y_train, free_raw_data=False)
-    lgb_valid = lgb.Dataset(X_valid, y_valid, free_raw_data=False)
+def train_model(X_train_cv, X_valid_cv, y_train_cv, y_valid_cv):
+    lgb_train = lgb.Dataset(X_train_cv, y_train_cv, free_raw_data=False)
+    lgb_valid = lgb.Dataset(X_valid_cv, y_valid_cv, reference=lgb_train, free_raw_data=False)
 
     params = {
         'task': 'train',
@@ -44,21 +44,42 @@ def main():
 
     train_ = train.drop(['id', 'pm25_mid'], axis=1)
     test_ = test.drop(['id'], axis=1)
-    y = train['pm25_mid']
+    y_ = train['pm25_mid']
     
-    X_train, X_valid, y_train, y_valid = train_test_split(
-            train_, y,
-            test_size=0.2,
-            random_state=123
+    X_train, X_test, y_train, y_test = train_test_split(
+        train_, y_,
+        test_size=0.2,
+        random_state=123
     )
 
-    K_fold = KFold(n_splits=5, shuffle=True,  random_state=42)
-    for train_cv_no, eval_cv_no in K_fold.split(list(range(len(y_train))), y_train):
-        pass
+    # 5分割交差検証
+    models = []
+    round_num = 0
+    K_fold = KFold(n_splits=5, shuffle=True,  random_state=123)
+    for train_cv_idx, valid_cv_idx in K_fold.split(X_train, y_train):
+        X_train_cv = X_train.iloc[train_cv_idx]
+        y_train_cv = y_train.iloc[train_cv_idx]
+        X_valid_cv = X_train.iloc[valid_cv_idx]
+        y_valid_cv = y_train.iloc[valid_cv_idx]
+
+        model = train_model(X_train_cv, X_valid_cv, y_train_cv, y_valid_cv)
+        models.appned(model)
+
+        y_train_pred = model.predict(X_train_cv, num_iteration=model.best_iteration)
+        y_valid_pred = model.predict(X_valid_cv, num_iteration=model.best_iteration)
+        y_test_pred = model.predict(X_test, num_iteration=model.best_iteration)
+
+        train_RMSE_score = mean_squared_error(y_train_cv, y_train_pred, squared=False)
+        valid_RMSE_score = mean_squared_error(y_valid_cv, y_valid_pred, squared=False)
+        test_RMSE_score = mean_squared_error(y_test, y_test_pred, squared=False)
+
+        print(f"train_RMSE:{train_RMSE_score:.3f} | valid_RMSE:{valid_RMSE_score:.3f} | test_RMSE:{test_RMSE_score:.3f}")
+
+        round_num += 1
     
-    model = train_model(X_train, X_valid, y_train, y_valid)
-    pred = model.predict(test_)
-    make_submit_file(pred)
+    # model = train_model(X_train, X_valid, y_train, y_valid)
+    # pred = model.predict(test_)
+    # make_submit_file(pred)
 
 
 if __name__ == '__main__':
