@@ -12,8 +12,9 @@ def tmp():
     test = pd.read_csv('./data/test.csv')
 
     train, test = preprocessing(train, test, ['Country', 'City'])
+    df_corr = train.corr()
 
-    print(train.corr())
+    print(df_corr)
 
 
 class Objective:
