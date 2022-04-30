@@ -12,9 +12,10 @@ def tmp():
     test = pd.read_csv('./data/test.csv')
 
     train, test = preprocessing(train, test, ['Country', 'City'])
-    df_corr = train.corr()
 
-    print(df_corr['pm25_mid'] )
+    print(train.isnull().sum())
+    print(test.isnull().sum())
+
 
 
 class Objective:
@@ -34,7 +35,7 @@ class Objective:
             'objective': 'regression',
             'metric': 'rmse',
             'learning_rate': trial.suggest_uniform('learning_rate', 0.01, 0.1),
-            'num_leaves': trial.suggest_int("num_leaves", 5, 50),
+            'num_leaves': trial.suggest_int("num_leaves", 10, 300),
             'tree_learner': trial.suggest_categorical('tree_learner', ["serial", "feature", "data", "voting"]),
             'seed': 0,
             'verbose': 0
@@ -64,9 +65,21 @@ def preprocessing(train, test, categorical_features):
         ))
         train[category] = le.transform(train[category])
         test[category] = le.transform(test[category])
-    
-    train['co_add'] = (train['co_cnt'] + train['co_min'] + train['co_mid'] + train['co_max'] + train['co_var'])/5
-    test['co_add'] = (test['co_cnt'] + test['co_min'] + test['co_mid'] + test['co_max'] + test['co_var'])/5
+
+    # train['tmp'] = (train['co_cnt'] + train['co_min'] + train['co_mid'] + train['no2_mid'] + train['co_max'] + train['co_var'])
+    # test['tmp'] = (test['co_cnt'] + test['co_min'] + test['co_mid'] + test['no2_mid'] + test['co_max'] + test['co_var'])
+
+    train['tmp1'] = (train['co_mid'] * train['o3_mid'] * train['so2_mid'] * train['no2_mid'] * train['temperature_mid'] * train['humidity_mid'] * train['pressure_mid'] * train['ws_mid'] * train['dew_mid'])
+    test['tmp1'] = (test['co_mid'] * test['o3_mid'] * test['so2_mid'] * test['no2_mid'] * test['temperature_mid'] * test['humidity_mid'] * test['pressure_mid'] * test['ws_mid'] * test['dew_mid'])
+
+    # train['tmp2'] = (train['co_mid'] + train['o3_mid'] + train['so2_mid'] + train['no2_mid'] + train['temperature_mid'] + train['humidity_mid'] + train['pressure_mid'] + train['ws_mid'] + train['dew_mid'])
+    # test['tmp2'] = (test['co_mid'] + test['o3_mid'] + test['so2_mid'] + test['no2_mid'] + test['temperature_mid'] + test['humidity_mid'] + test['pressure_mid'] + test['ws_mid'] + test['dew_mid'])
+
+    # train['tmp3'] = (train['co_mid'] - train['o3_mid'] - train['so2_mid'] - train['no2_mid'] - train['temperature_mid'] - train['humidity_mid'] - train['pressure_mid'] - train['ws_mid'] - train['dew_mid'])
+    # test['tmp3'] = (test['co_mid'] - test['o3_mid'] - test['so2_mid'] - test['no2_mid'] - test['temperature_mid'] - test['humidity_mid'] - test['pressure_mid'] - test['ws_mid'] - test['dew_mid'])
+
+    # train['tmp4'] = (train['co_mid'] / train['o3_mid'] / train['so2_mid'] / train['no2_mid'] / train['temperature_mid'] / train['humidity_mid'] / train['pressure_mid'] / train['ws_mid'] / train['dew_mid'])
+    # test['tmp4'] = (test['co_mid'] / test['o3_mid'] / test['so2_mid'] / test['no2_mid'] / test['temperature_mid'] / test['humidity_mid'] / test['pressure_mid'] / test['ws_mid'] / test['dew_mid'])
 
     return train, test
 
@@ -74,7 +87,7 @@ def preprocessing(train, test, categorical_features):
 def train_valid_step(X, y):
     cv_valid_scores = []
     models = []
-    kf = KFold(n_splits=5, shuffle=True, random_state=0)
+    kf = KFold(n_splits=8, shuffle=True, random_state=0)
 
     for fold, (train_indices, valid_indices) in enumerate(kf.split(X)):
         X_train, X_valid = X[train_indices], X[valid_indices]
@@ -85,8 +98,6 @@ def train_valid_step(X, y):
         objective = Objective(X_train, X_valid, y_train, y_valid)
         study = optuna.create_study(direction='minimize')
         study.optimize(objective, timeout=100)
-        # study.optimize(objective, n_trials=100)
-        best_params = study.best_params
 
         add_params = {
             'task': 'train',
@@ -97,10 +108,10 @@ def train_valid_step(X, y):
             'verbose': 0
         }
 
-        best_params.update(add_params)
+        add_params.update(study.best_params)
 
         model = lgb.train(
-            params=best_params,
+            params=add_params,
             train_set=lgb_train,
             valid_sets=[lgb_train, lgb_valid],
             valid_names=['train', 'valid'],
@@ -122,13 +133,13 @@ def train_valid_step(X, y):
 
 
 def test_step(models, X_test):
-    df_preds = pd.DataFrame()
+    y_test_preds = pd.DataFrame()
     
     for fold, model in enumerate(models):
-        y_pred = model.predict(X_test, num_iteration=model.best_iteration)
-        df_preds[fold] = y_pred
+        y_test_pred = model.predict(X_test, num_iteration=model.best_iteration)
+        y_test_preds[fold] = y_test_pred
 
-    return df_preds.mean(axis=1)
+    return y_test_preds.mean(axis=1)
 
 
 def main():
@@ -137,15 +148,18 @@ def main():
 
     train, test = preprocessing(train, test, ['Country', 'City'])
 
-    X_train = train.drop(['id', 'City', 'pm25_mid'], axis=1).values
+    X_train = train.drop(['id', 'pm25_mid'], axis=1).values
     y_train = train['pm25_mid'].values
-    X_test = test.drop(['id', 'City'], axis=1).values
+    X_test = test.drop(['id'], axis=1).values
 
     models = train_valid_step(X_train, y_train)
-    y_test_pred = test_step(models, X_test)
+    y_test_preds = test_step(models, X_test)
 
-    submission = pd.DataFrame({'id': test['id'], 'pm25_mid': y_test_pred})
+    submission = pd.DataFrame({'id': test['id'], 'pm25_mid': y_test_preds})
     submission.to_csv('./submit.csv', header=False, index=False)
+
+    importance = pd.DataFrame(models[0].feature_importance(), index=train.drop(['id', 'pm25_mid'], axis=1).columns, columns=['importance'])
+    print(importance.head(60))
 
 
 if __name__ == '__main__':
