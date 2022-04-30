@@ -14,7 +14,7 @@ def tmp():
     train, test = preprocessing(train, test, ['Country', 'City'])
     df_corr = train.corr()
 
-    print(df_corr)
+    print(df_corr['pm25_mid'] )
 
 
 class Objective:
@@ -149,5 +149,5 @@ def main():
 
 
 if __name__ == '__main__':
-    tmp()
-    # main()
+    # tmp()
+    main()
