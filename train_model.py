@@ -1,60 +1,161 @@
 import numpy as np
 import pandas as pd
-import optuna
+import xgboost as xgb
 import lightgbm as lgb
-from sklearn.preprocessing import LabelEncoder
+from catboost import CatBoostRegressor
+from sklearn.svm import LinearSVR
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 
 
-def tmp():
-    train = pd.read_csv('./data/train.csv')
-    test = pd.read_csv('./data/test.csv')
+class ModelXGBoost:
+    def __init__(self):
+        self.model = None
 
-    train, test = preprocessing(train, test, ['Country', 'City'])
-
-    print(train.isnull().sum())
-    print(test.isnull().sum())
-
-
-
-class Objective:
-    def __init__(self, X_train, X_valid, y_train, y_valid):
-        self.X_train = X_train
-        self.X_valid = X_valid
-        self.y_train = y_train
-        self.y_valid = y_valid
-
-    def __call__(self, trial):
-        lgb_train = lgb.Dataset(self.X_train, self.y_train)
-        lgb_valid = lgb.Dataset(self.X_valid, self.y_valid)
+    def fit(self, X_train, X_valid, y_train, y_valid):
+        xgb_train = xgb.DMatrix(X_train, label=y_train)
+        xgb_valid = xgb.DMatrix(X_valid, label=y_valid)
 
         params = {
-            'task': 'train',
-            'boosting_type': 'gbdt',
-            'objective': 'regression',
-            'metric': 'rmse',
-            'learning_rate': trial.suggest_uniform('learning_rate', 0.01, 0.1),
-            'num_leaves': trial.suggest_int("num_leaves", 10, 300),
-            'tree_learner': trial.suggest_categorical('tree_learner', ["serial", "feature", "data", "voting"]),
-            'seed': 0,
-            'verbose': 0
+            'objective': 'reg:squarederror',
+            'random_state': 0,
         }
 
-        model = lgb.train(
-            params=params,
-            train_set=lgb_train,
-            valid_sets=[lgb_train, lgb_valid],
-            valid_names=['train', 'valid'],
+        self.model = xgb.train(
+            params,
+            xgb_train,
+            evals=[(xgb_train, 'train'), (xgb_valid, 'valid')],
             num_boost_round=100000,
             early_stopping_rounds=100,
             verbose_eval=100
         )
 
-        y_valid_pred = model.predict(self.X_valid, num_iteration=model.best_iteration)
-        rmse = mean_squared_error(self.y_valid, y_valid_pred, squared=False)
+    def predict(self, X):
+        pred = self.model.predict(xgb.DMatrix(X))
 
-        return rmse
+        return pred
+
+
+class ModelLightGBM:
+    def __init__(self):
+        self.model = None
+
+    def fit(self, X_train, X_valid, y_train, y_valid):
+        lgb_train = lgb.Dataset(X_train, label=y_train)
+        lgb_valid = lgb.Dataset(X_valid, label=y_valid, reference=lgb_train)
+
+        params = {
+            'objective': 'regression',
+            'random_state': 0,
+            'metric': 'rmse',
+        }
+
+        self.model = lgb.train(
+            params,
+            lgb_train,
+            valid_sets=lgb_valid,
+            num_boost_round=100000,
+            early_stopping_rounds=100,
+            verbose_eval=100
+        )
+
+    def predict(self, X):
+        pred = self.model.predict(X, num_iteration=self.model.best_iteration)
+
+        return pred
+
+
+class ModelCatBoost:
+    def __init__(self):
+        self.model = None
+
+    def fit(self, X_train, X_valid, y_train, y_valid):
+        params = {
+            'iterations': 100000,
+            'use_best_model': True,
+            'random_seed': 0,
+            'l2_leaf_reg': 3,
+            'depth': 6,
+            'loss_function': 'RMSE',
+            'task_type': 'GPU',
+        }
+
+        model_ = CatBoostRegressor(**params)
+        self.model = model_.fit(X_train, y_train, eval_set=(X_valid, y_valid), early_stopping_rounds=100, verbose=100)
+
+    def predict(self, X):
+        pred = self.model.predict(X)
+
+        return pred
+
+
+class ModelLinearSVR:
+    def __init__(self):
+        self.model = None
+
+    def fit(self, X_train, X_valid, y_train, y_valid):
+        self.scaler = StandardScaler()
+        self.scaler.fit(X_train)
+        X_train = self.scaler.transform(X_train)
+        self.model = LinearSVR(
+            max_iter=1000,
+            C=1.0,
+            random_state=0,
+            epsilon=5.0,
+            verbose=100,
+        )
+        self.model.fit(X_train, y_train)
+
+    def predict(self, X):
+        X = self.scaler.transform(X)
+        pred = self.model.predict(X)
+
+        return pred
+
+
+class ModelRandomForest:
+    def __init__(self):
+        self.model = None
+
+    def fit(self, X_train, X_valid, y_train, y_valid):
+        self.scaler = StandardScaler()
+        self.scaler.fit(X_train)
+        X_train = self.scaler.transform(X_train)
+        self.model = RandomForestRegressor(
+            max_depth=5,
+            n_estimators=100,
+            random_state=0,
+            verbose=1
+        )
+        self.model.fit(X_train, y_train)
+
+    def predict(self, X):
+        X = self.scaler.transform(X)
+        pred = self.model.predict(X)
+
+        return pred
+
+
+class Model2Linear:
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, X_train, X_valid, y_train, y_valid):
+        self.scaler = StandardScaler()
+        self.scaler.fit(X_train)
+        X_train = self.scaler.transform(X_train)
+        self.model = LinearRegression()
+        self.model.fit(X_train, y_train)
+
+    def predict(self, X):
+        X = self.scaler.transform(X)
+        pred = self.model.predict(X)
+
+        return pred
 
 
 def preprocessing(train, test, categorical_features):
@@ -66,80 +167,34 @@ def preprocessing(train, test, categorical_features):
         train[category] = le.transform(train[category])
         test[category] = le.transform(test[category])
 
-    # train['tmp'] = (train['co_cnt'] + train['co_min'] + train['co_mid'] + train['no2_mid'] + train['co_max'] + train['co_var'])
-    # test['tmp'] = (test['co_cnt'] + test['co_min'] + test['co_mid'] + test['no2_mid'] + test['co_max'] + test['co_var'])
-
-    train['tmp1'] = (train['co_mid'] * train['o3_mid'] * train['so2_mid'] * train['no2_mid'] * train['temperature_mid'] * train['humidity_mid'] * train['pressure_mid'] * train['ws_mid'] * train['dew_mid'])
-    test['tmp1'] = (test['co_mid'] * test['o3_mid'] * test['so2_mid'] * test['no2_mid'] * test['temperature_mid'] * test['humidity_mid'] * test['pressure_mid'] * test['ws_mid'] * test['dew_mid'])
-
-    # train['tmp2'] = (train['co_mid'] + train['o3_mid'] + train['so2_mid'] + train['no2_mid'] + train['temperature_mid'] + train['humidity_mid'] + train['pressure_mid'] + train['ws_mid'] + train['dew_mid'])
-    # test['tmp2'] = (test['co_mid'] + test['o3_mid'] + test['so2_mid'] + test['no2_mid'] + test['temperature_mid'] + test['humidity_mid'] + test['pressure_mid'] + test['ws_mid'] + test['dew_mid'])
-
-    # train['tmp3'] = (train['co_mid'] - train['o3_mid'] - train['so2_mid'] - train['no2_mid'] - train['temperature_mid'] - train['humidity_mid'] - train['pressure_mid'] - train['ws_mid'] - train['dew_mid'])
-    # test['tmp3'] = (test['co_mid'] - test['o3_mid'] - test['so2_mid'] - test['no2_mid'] - test['temperature_mid'] - test['humidity_mid'] - test['pressure_mid'] - test['ws_mid'] - test['dew_mid'])
-
-    # train['tmp4'] = (train['co_mid'] / train['o3_mid'] / train['so2_mid'] / train['no2_mid'] / train['temperature_mid'] / train['humidity_mid'] / train['pressure_mid'] / train['ws_mid'] / train['dew_mid'])
-    # test['tmp4'] = (test['co_mid'] / test['o3_mid'] / test['so2_mid'] / test['no2_mid'] / test['temperature_mid'] / test['humidity_mid'] / test['pressure_mid'] / test['ws_mid'] / test['dew_mid'])
-
     return train, test
 
 
-def train_valid_step(X, y):
-    cv_valid_scores = []
-    models = []
-    kf = KFold(n_splits=8, shuffle=True, random_state=0)
-
-    for fold, (train_indices, valid_indices) in enumerate(kf.split(X)):
-        X_train, X_valid = X[train_indices], X[valid_indices]
-        y_train, y_valid = y[train_indices], y[valid_indices]
-        lgb_train = lgb.Dataset(X_train, y_train)
-        lgb_valid = lgb.Dataset(X_valid, y_valid)
-
-        objective = Objective(X_train, X_valid, y_train, y_valid)
-        study = optuna.create_study(direction='minimize')
-        study.optimize(objective, timeout=100)
-
-        add_params = {
-            'task': 'train',
-            'boosting_type': 'gbdt',
-            'objective': 'regression',
-            'metric': 'rmse',
-            'seed': 0,
-            'verbose': 0
-        }
-
-        add_params.update(study.best_params)
-
-        model = lgb.train(
-            params=add_params,
-            train_set=lgb_train,
-            valid_sets=[lgb_train, lgb_valid],
-            valid_names=['train', 'valid'],
-            num_boost_round=100000,
-            early_stopping_rounds=100,
-            verbose_eval=100
-        )
-
-        y_valid_pred = model.predict(X_valid, num_iteration=model.best_iteration)
-        score = mean_squared_error(y_valid, y_valid_pred, squared=False)
-        print(f"fold: {fold} | RMSE: {score:.3f}")
-        cv_valid_scores.append(score)
-
-        models.append(model)
-  
-    print(f'CV : {np.mean(cv_valid_scores)}')
-
-    return models
-
-
-def test_step(models, X_test):
-    y_test_preds = pd.DataFrame()
+def predict_cv(model, X_train, y_train, X_test):
+    preds = []
+    preds_test = []
+    valid_indices = []
     
-    for fold, model in enumerate(models):
-        y_test_pred = model.predict(X_test, num_iteration=model.best_iteration)
-        y_test_preds[fold] = y_test_pred
+    kf = KFold(n_splits=6, shuffle=True, random_state=0)
+    for fold, (train_index, valid_index) in enumerate(kf.split(X_train)):
+        X_tr, X_va = X_train.iloc[train_index], X_train.iloc[valid_index]
+        y_tr, y_va = y_train.iloc[train_index], y_train.iloc[valid_index]
 
-    return y_test_preds.mean(axis=1)
+        model.fit(X_tr, X_va, y_tr, y_va)
+        pred = model.predict(X_va)
+        preds.append(pred)
+        pred_test = model.predict(X_test)
+        preds_test.append(pred_test)
+        valid_indices.append(valid_index)
+    
+    valid_indices = np.concatenate(valid_indices)
+    preds = np.concatenate(preds, axis=0)
+    order = np.argsort(valid_indices)
+    pred_train = preds[order]
+  
+    preds_test = np.mean(preds_test, axis=0)
+
+    return pred_train, preds_test
 
 
 def main():
@@ -148,20 +203,56 @@ def main():
 
     train, test = preprocessing(train, test, ['Country', 'City'])
 
-    X_train = train.drop(['id', 'pm25_mid'], axis=1).values
-    y_train = train['pm25_mid'].values
-    X_test = test.drop(['id'], axis=1).values
+    X_train_valid = train.drop(['id', 'pm25_mid'], axis=1)
+    y_train_valid = train['pm25_mid']
+    X_test = test.drop(['id'], axis=1)
 
-    models = train_valid_step(X_train, y_train)
-    y_test_preds = test_step(models, X_test)
+    model_1a = ModelXGBoost()
+    pred_train_1a, pred_test_1a = predict_cv(model_1a, X_train_valid, y_train_valid, X_test)
 
-    submission = pd.DataFrame({'id': test['id'], 'pm25_mid': y_test_preds})
+    model_1b = ModelLightGBM()
+    pred_train_1b, pred_test_1b = predict_cv(model_1b, X_train_valid, y_train_valid, X_test)
+
+    model_1c = ModelCatBoost()
+    pred_train_1c, pred_test_1c = predict_cv(model_1c, X_train_valid, y_train_valid, X_test)
+
+    model_1d = ModelLinearSVR()
+    pred_train_1d, pred_test_1d = predict_cv(model_1d, X_train_valid, y_train_valid, X_test)
+
+    model_1e = ModelRandomForest()
+    pred_train_1e, pred_test_1e = predict_cv(model_1e, X_train_valid, y_train_valid, X_test)
+
+    print(f'a XGBoost RMSE: {mean_squared_error(y_train_valid, pred_train_1a, squared=False):.4f}')    
+    print(f'b LightGBM RMSE: {mean_squared_error(y_train_valid, pred_train_1b, squared=False):.4f}')
+    print(f'c CatBoost RMSE: {mean_squared_error(y_train_valid, pred_train_1c, squared=False):.4f}')
+    print(f'd LinearSVR RMSE: {mean_squared_error(y_train_valid, pred_train_1d, squared=False):.4f}')
+    print(f'e RandomForest RMSE: {mean_squared_error(y_train_valid, pred_train_1e, squared=False):.4f}')
+
+    X_train_2 = pd.DataFrame({
+        'pred_1a': pred_train_1a,
+        'pred_1b': pred_train_1b,
+        'pred_1c': pred_train_1c,
+        'pred_1d': pred_train_1d,
+        'pred_1e': pred_train_1e
+    })
+    X_test_2 = pd.DataFrame({
+        'pred_1a': pred_test_1a,
+        'pred_1b': pred_test_1b,
+        'pred_1c': pred_test_1c,
+        'pred_1d': pred_test_1d,
+        'pred_1e': pred_test_1e
+    })
+    X_train_2 = pd.concat([X_train_valid, X_train_2], axis=1)
+    X_test_2 = pd.concat([X_test, X_test_2], axis=1)
+
+    model_2b = Model2Linear()
+    pred_train_2, pred_test_2 = predict_cv(model_2b, X_train_2, y_train_valid, X_test_2)
+
+    print(f'RMSE: {mean_squared_error(y_train_valid, pred_train_2, squared=False):.4f}')
+
+    submission = pd.DataFrame({'id': test['id'], 'pm25_mid': pred_test_2})
     submission.to_csv('./submit.csv', header=False, index=False)
-
-    importance = pd.DataFrame(models[0].feature_importance(), index=train.drop(['id', 'pm25_mid'], axis=1).columns, columns=['importance'])
-    print(importance.head(60))
 
 
 if __name__ == '__main__':
-    # tmp()
     main()
