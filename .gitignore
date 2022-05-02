@@ -1,1 +1,4 @@
+catboost_info/
 data/
+models/
+submit.csv
