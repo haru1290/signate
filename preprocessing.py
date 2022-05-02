@@ -39,8 +39,8 @@ def main(args):
     categorical_features = ['Country', 'City']
     train, test = preprocessing(train, test, categorical_features)
 
-    train.to_csv('./data/train_new.csv')
-    test.to_csv('./data/test_new.csv')
+    train.to_csv('./data/train_new.csv', index=False)
+    test.to_csv('./data/test_new.csv', index=False)
 
 
 if __name__ == '__main__':

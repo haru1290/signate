@@ -64,8 +64,8 @@ def predict_cv(model, X_train, y_train, X_test):
 
 
 def main(args):
-    train = pd.read_csv(args.X_train_valid)
-    test = pd.read_csv(args.y_train_valid)
+    train = pd.read_csv(args.train)
+    test = pd.read_csv(args.test)
 
     X_train_valid = train.drop(['id', 'pm25_mid'], axis=1)
     y_train_valid = train['pm25_mid']
@@ -76,7 +76,7 @@ def main(args):
 
     print(f'RMSE: {mean_squared_error(y_train_valid, pred_train_1b, squared=False):.4f}')
 
-    submission = pd.DataFrame({'id': X_test['id'], 'pm25_mid': pred_test_1b})
+    submission = pd.DataFrame({'id': test['id'], 'pm25_mid': pred_test_1b})
     submission.to_csv(args.submit, header=False, index=False)
 
 
