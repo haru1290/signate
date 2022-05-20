@@ -1,33 +1,21 @@
 import numpy as np
 import pandas as pd
-from argparse import ArgumentParser
-from sklearn.preprocessing import LabelEncoder
+import category_encoders as ce
 from sklearn.neighbors import NearestNeighbors
-
-
-def knn(train, df):
-    nn = NearestNeighbors(metric='cosine')
-    nn.fit(np.array([train['lat'], train['lon']]).T)
-    knn_ids = nn.kneighbors(np.array([df['lat'], df['lon']]).T, n_neighbors=3, return_distance=False)
-    result = []
-    for knn_id in knn_ids:
-        result.append((train['pm25_mid'][knn_id[1]] + train['pm25_mid'][knn_id[2]])/2)
-    df['pm25_mean'] = result
-
-    return df
+from argparse import ArgumentParser
 
 
 def preprocessing(train, test, categorical_features):
     for category in categorical_features:
-        le = LabelEncoder().fit(list(
-            set(train[category].unique()).union(
-            set(test[category].unique()))
-        ))
-        train[category] = le.transform(train[category])
-        test[category] = le.transform(test[category])
+        count_encoder = ce.CountEncoder(cols=[category])
+        train[category] = count_encoder.fit_transform(train[category])
+        test[category] = count_encoder.fit_transform(test[category])
 
-    train = knn(train, train)
-    test = knn(train, test)
+    train_coord = np.array([train['lat'], train['lon']]).T
+    test_coord = np.array([train['lat'], train['lon']]).T
+    nbrs = NearestNeighbors(n_neighbors=3, algorithm='kd_tree', metric='euclidean').fit(train_coord)
+    nbrs_indices = nbrs.kneighbors(test_coord, return_distance=False)
+    print(nbrs_indices)
 
     return train, test
 
@@ -48,7 +36,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--train', default='./data/train.csv')
     parser.add_argument('--test', default='./data/test.csv')
-    parser.add_argument('--submit', default='.submit.csv')
+    parser.add_argument('--submit', default='./submit.csv')
 
     args = parser.parse_args()
 
