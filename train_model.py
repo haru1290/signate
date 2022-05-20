@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import optuna
 import lightgbm as lgb
-from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import mean_squared_error
 from argparse import ArgumentParser
